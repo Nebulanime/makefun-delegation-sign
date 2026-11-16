@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tanda tangan delegasi make.fun</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 0; padding: 20px; }
+  h1 { font-size: 20px; }
+  p { line-height: 1.5; }
+  .msg { background: #222; border: 1px solid #444; border-radius: 8px; padding: 12px; word-break: break-all; font-size: 13px; }
+  button { display: block; width: 100%; padding: 14px; margin: 12px 0; font-size: 16px; border: 0; border-radius: 10px; background: #7c6cff; color: #fff; }
+  button:disabled { background: #444; color: #aaa; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 90px; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px; padding: 10px; font-size: 13px; word-break: break-all; }
+  .ok { color: #7dff9e; } .bad { color: #ff8a8a; } .small { font-size: 13px; color: #aaa; }
+  label { font-weight: bold; display: block; margin-top: 16px; }
+</style>
+</head>
+<body>
+<h1>Tanda tangan delegasi make.fun</h1>
+<p>Ini cuma tanda tangan SATU pesan: hadiah make.fun diarahkan ke wallet Phantom Jack. Bukan transfer, bukan approve transaksi, dan tidak ada dana yang bergerak.</p>
+<p class="small">Buka halaman ini di <b>browser dalam aplikasi Phantom</b> (ikon globe di Phantom), bukan di Chrome.</p>
+
+<p>Wallet yang harus tanda tangan:</p>
+<div class="msg">A1QtxLR5QpCUv716Zz9JYVWTWfGGu2j6GbrftbLZ1C5t</div>
+<p id="connected" class="small">Belum terhubung ke Phantom.</p>
+
+<label>Pesan yang ditandatangani:</label>
+<div class="msg" id="msg">make.fun delegation v1; Domain: make.fun; Payout: A1QtxLR5QpCUv716Zz9JYVWTWfGGu2j6GbrftbLZ1C5t; Agent: Cqn9FaXvaftg7ZPrHDzFZrXMPT95F9Xceu347XecQAoM; Competitions: *; Nonce: 1ac48b2e61a573fb0c5c6837d198e755; Issued At: 2026-11-16T18:35:27.259Z; Expiration Time: 2027-02-14T18:35:27.259Z</div>
+
+<button id="connectBtn">1. Hubungkan Phantom</button>
+<button id="signBtn" disabled>2. Tanda tangani pesan</button>
+
+<label>Hasil tanda tangan (base64) — kirim ini ke Milim:</label>
+<textarea id="sigOut" readonly placeholder="Tanda tangan akan muncul di sini setelah Jack tap tombol di atas."></textarea>
+<button id="copyBtn" disabled>Salin tanda tangan</button>
+<p id="status" class="small"></p>
+
+<label>Tanda tangan (base58) — cadangan, kalau yang atas ditolak:</label>
+<textarea id="sig58Out" readonly></textarea>
+<button id="copy58Btn" disabled>Salin base58</button>
+
+<script>
+const MESSAGE = document.getElementById('msg').textContent;
+const EXPECTED = 'A1QtxLR5QpCUv716Zz9JYVWTWfGGu2j6GbrftbLZ1C5t';
+const connectBtn = document.getElementById('connectBtn');
+const signBtn = document.getElementById('signBtn');
+const copyBtn = document.getElementById('copyBtn');
+const copy58Btn = document.getElementById('copy58Btn');
+const connectedEl = document.getElementById('connected');
+const sigOut = document.getElementById('sigOut');
+const sig58Out = document.getElementById('sig58Out');
+const statusEl = document.getElementById('status');
+
+function b64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function b58(bytes) {
+  const digits = [0];
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  let out = '';
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) out += '1';
+  for (let i = digits.length - 1; i >= 0; i--) out += B58[digits[i]];
+  return out;
+}
+function getProvider() {
+  if (window.phantom && window.phantom.solana) return window.phantom.solana;
+  if (window.solana) return window.solana;
+  return null;
+}
+connectBtn.onclick = async () => {
+  const p = getProvider();
+  if (!p) { connectedEl.innerHTML = '<span class="bad">Phantom tidak ketemu. Buka halaman ini lewat browser di dalam aplikasi Phantom (ikon globe).</span>'; return; }
+  try {
+    const r = await p.connect();
+    const addr = r.publicKey.toString();
+    if (addr === EXPECTED) {
+      connectedEl.innerHTML = '<span class="ok">Terhubung: ' + addr + ' (cocok)</span>';
+      signBtn.disabled = false;
+    } else {
+      connectedEl.innerHTML = '<span class="bad">Terhubung ke wallet lain: ' + addr + '. Pindah ke wallet Phantom yang alamatnya ' + EXPECTED + ' dulu.</span>';
+    }
+  } catch (e) { connectedEl.innerHTML = '<span class="bad">Gagal terhubung: ' + e.message + '</span>'; }
+};
+signBtn.onclick = async () => {
+  const p = getProvider();
+  if (!p) return;
+  statusEl.textContent = 'Menunggu tanda tangan di Phantom...';
+  try {
+    const encoded = new TextEncoder().encode(MESSAGE);
+    const signed = await p.signMessage(encoded, 'utf8');
+    const sig = signed.signature;
+    sigOut.value = b64(sig);
+    sig58Out.value = b58(sig);
+    copyBtn.disabled = false;
+    copy58Btn.disabled = false;
+    statusEl.innerHTML = '<span class="ok">Berhasil. Salin tanda tangan di atas dan kirim ke Milim.</span>';
+  } catch (e) { statusEl.innerHTML = '<span class="bad">Dibatalkan / gagal: ' + e.message + '</span>'; }
+};
+async function copyText(el, btn) {
+  try { await navigator.clipboard.writeText(el.value); btn.textContent = 'Disalin!'; }
+  catch (e) { el.select(); document.execCommand('copy'); btn.textContent = 'Disalin!'; }
+  setTimeout(() => { btn.textContent = btn.id === 'copyBtn' ? 'Salin tanda tangan' : 'Salin base58'; }, 2000);
+}
+copyBtn.onclick = () => copyText(sigOut, copyBtn);
+copy58Btn.onclick = () => copyText(sig58Out, copy58Btn);
+</script>
+</body>
+</html>
